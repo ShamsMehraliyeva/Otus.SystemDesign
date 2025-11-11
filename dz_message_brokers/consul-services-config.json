@@ -1,0 +1,169 @@
+{
+  "$schema": "https://www.consul.io/docs/agent/services/services-schema.json",
+  "services": [
+    {
+      "id": "event-service-1",
+      "name": "event-service",
+      "tags": ["rest", "grpc", "v1", "events"],
+      "address": "event-service",
+      "port": 5001,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "http",
+        "description": "Event management service with REST and gRPC APIs"
+      },
+      "checks": [
+        {
+          "id": "event-service-http-check",
+          "name": "Event Service HTTP Health Check",
+          "http": "http://event-service:5001/health",
+          "method": "GET",
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s",
+          "success_before_passing": 2,
+          "failures_before_critical": 3
+        },
+        {
+          "id": "event-service-tcp-check",
+          "name": "Event Service TCP Check",
+          "tcp": "event-service:5001",
+          "interval": "30s",
+          "timeout": "5s"
+        }
+      ],
+      "enable_tag_override": false
+    },
+    {
+      "id": "ticket-service-1",
+      "name": "ticket-service",
+      "tags": ["rest", "v1", "tickets", "sales"],
+      "address": "ticket-service",
+      "port": 5002,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "http",
+        "description": "Ticket sales and management service"
+      },
+      "checks": [
+        {
+          "id": "ticket-service-http-check",
+          "name": "Ticket Service HTTP Health Check",
+          "http": "http://ticket-service:5002/health",
+          "method": "GET",
+          "header": {
+            "X-Health-Check": ["true"]
+          },
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s"
+        }
+      ]
+    },
+    {
+      "id": "venue-service-1",
+      "name": "venue-service",
+      "tags": ["grpc", "v1", "venues", "seats"],
+      "address": "venue-service",
+      "port": 5003,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "grpc",
+        "description": "Venue and seat management service (gRPC only)"
+      },
+      "checks": [
+        {
+          "id": "venue-service-grpc-check",
+          "name": "Venue Service gRPC Health Check",
+          "grpc": "venue-service:5003",
+          "grpc_use_tls": false,
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s"
+        },
+        {
+          "id": "venue-service-tcp-check",
+          "name": "Venue Service TCP Check",
+          "tcp": "venue-service:5003",
+          "interval": "30s",
+          "timeout": "5s"
+        }
+      ]
+    },
+    {
+      "id": "notification-service-1",
+      "name": "notification-service",
+      "tags": ["websocket", "signalr", "v1", "notifications", "realtime"],
+      "address": "notification-service",
+      "port": 5004,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "websocket",
+        "description": "Real-time notification service using SignalR"
+      },
+      "checks": [
+        {
+          "id": "notification-service-http-check",
+          "name": "Notification Service HTTP Health Check",
+          "http": "http://notification-service:5004/health",
+          "method": "GET",
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s"
+        }
+      ]
+    },
+    {
+      "id": "analytics-service-1",
+      "name": "analytics-service",
+      "tags": ["worker", "background", "v1", "analytics", "reporting"],
+      "address": "analytics-service",
+      "port": 5005,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "http",
+        "description": "Analytics and reporting service with background workers"
+      },
+      "checks": [
+        {
+          "id": "analytics-service-http-check",
+          "name": "Analytics Service HTTP Health Check",
+          "http": "http://analytics-service:5005/health",
+          "method": "GET",
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s"
+        }
+      ]
+    },
+    {
+      "id": "api-gateway-1",
+      "name": "api-gateway",
+      "tags": ["gateway", "ocelot", "v1", "public"],
+      "address": "api-gateway",
+      "port": 8080,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "protocol": "http",
+        "description": "API Gateway using Ocelot"
+      },
+      "checks": [
+        {
+          "id": "api-gateway-http-check",
+          "name": "API Gateway HTTP Health Check",
+          "http": "http://api-gateway:8080/health",
+          "method": "GET",
+          "interval": "10s",
+          "timeout": "2s",
+          "deregister_critical_service_after": "30s"
+        }
+      ]
+    }
+  ]
+}

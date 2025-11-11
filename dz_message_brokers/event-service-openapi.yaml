@@ -1,0 +1,793 @@
+openapi: 3.0.3
+info:
+  title: Event Service API
+  description: |
+    RESTful API для управления концертами и мероприятиями.
+
+    Этот сервис отвечает за создание, обновление, удаление и поиск концертов в системе управления концертами.
+
+    ## Основные функции:
+    - CRUD операции над событиями (концертами)
+    - Поиск и фильтрация концертов
+    - Управление типами билетов
+    - Публикация событий в RabbitMQ для других сервисов
+
+    ## Аутентификация:
+    API использует JWT Bearer токены для аутентификации. Некоторые endpoints доступны публично (GET), другие требуют авторизации с ролью Admin.
+
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api-support@concerts.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5001
+    description: Local development server
+  - url: http://localhost:8080/api
+    description: API Gateway (local)
+  - url: https://api.concerts.com
+    description: Production server
+
+tags:
+  - name: Events
+    description: Операции управления концертами и мероприятиями
+  - name: Health
+    description: Health check endpoints для мониторинга
+
+paths:
+  /api/events:
+    get:
+      tags:
+        - Events
+      summary: Получить список всех событий
+      description: |
+        Возвращает пагинированный список всех концертов с возможностью фильтрации и сортировки.
+
+        Endpoint доступен без аутентификации (публичный).
+      operationId: getEvents
+      parameters:
+        - name: page
+          in: query
+          description: Номер страницы (начиная с 1)
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: pageSize
+          in: query
+          description: Количество элементов на странице
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: sortBy
+          in: query
+          description: Поле для сортировки
+          required: false
+          schema:
+            type: string
+            enum: [name, date, createdAt]
+            default: date
+        - name: order
+          in: query
+          description: Порядок сортировки
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: status
+          in: query
+          description: Фильтр по статусу события
+          required: false
+          schema:
+            $ref: '#/components/schemas/EventStatus'
+        - name: dateFrom
+          in: query
+          description: Фильтр - события начиная с даты (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-12-01T00:00:00Z"
+        - name: dateTo
+          in: query
+          description: Фильтр - события до даты (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2025-12-31T23:59:59Z"
+        - name: search
+          in: query
+          description: Поиск по названию или описанию события
+          required: false
+          schema:
+            type: string
+            example: "Rock Concert"
+      responses:
+        '200':
+          description: Успешный ответ со списком событий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '400':
+          description: Неверные параметры запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Events
+      summary: Создать новое событие
+      description: |
+        Создает новый концерт или мероприятие.
+
+        **Требуется аутентификация с ролью Admin.**
+
+        После успешного создания публикуется событие `EventCreated` в RabbitMQ.
+      operationId: createEvent
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Событие успешно создано
+          headers:
+            Location:
+              description: URL созданного ресурса
+              schema:
+                type: string
+                example: /api/events/550e8400-e29b-41d4-a716-446655440000
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Ошибка валидации данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Недостаточно прав (требуется роль Admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/events/{id}:
+    get:
+      tags:
+        - Events
+      summary: Получить событие по ID
+      description: |
+        Возвращает детальную информацию о конкретном событии.
+
+        Endpoint доступен без аутентификации (публичный).
+      operationId: getEventById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор события (UUID)
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Успешный ответ с данными события
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Событие не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Events
+      summary: Обновить событие
+      description: |
+        Обновляет существующее событие.
+
+        **Требуется аутентификация с ролью Admin.**
+
+        После успешного обновления публикуется событие `EventUpdated` в RabbitMQ.
+      operationId: updateEvent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор события
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventRequest'
+      responses:
+        '200':
+          description: Событие успешно обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Ошибка валидации данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Не авторизован
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Событие не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Конфликт (например, событие уже началось)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+
+    delete:
+      tags:
+        - Events
+      summary: Удалить событие
+      description: |
+        Удаляет событие (фактически меняет статус на Cancelled).
+
+        **Требуется аутентификация с ролью Admin.**
+
+        Реальное удаление не происходит (soft delete), статус меняется на Cancelled.
+      operationId: deleteEvent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор события
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Событие успешно удалено (cancelled)
+        '401':
+          description: Не авторизован
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Событие не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Конфликт (нельзя удалить, есть проданные билеты)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+
+  /api/events/search:
+    get:
+      tags:
+        - Events
+      summary: Расширенный поиск событий
+      description: |
+        Поиск событий по множественным критериям.
+
+        Endpoint доступен без аутентификации (публичный).
+      operationId: searchEvents
+      parameters:
+        - name: query
+          in: query
+          description: Поисковый запрос (по названию, описанию, исполнителям)
+          required: false
+          schema:
+            type: string
+            example: "rock"
+        - name: genre
+          in: query
+          description: Жанр музыки
+          required: false
+          schema:
+            type: string
+            example: "Rock"
+        - name: city
+          in: query
+          description: Город проведения
+          required: false
+          schema:
+            type: string
+            example: "Moscow"
+        - name: venueId
+          in: query
+          description: Идентификатор зала
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: minPrice
+          in: query
+          description: Минимальная цена билета
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: 0
+        - name: maxPrice
+          in: query
+          description: Максимальная цена билета
+          required: false
+          schema:
+            type: number
+            format: double
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '400':
+          description: Неверные параметры поиска
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: |
+        Проверяет здоровье сервиса и его зависимостей.
+
+        Используется Service Discovery (Consul) для мониторинга доступности.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Сервис здоров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Сервис недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT токен для аутентификации.
+
+        Пример: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+
+  schemas:
+    EventStatus:
+      type: string
+      enum:
+        - Draft
+        - Published
+        - Cancelled
+      description: |
+        Статус события:
+        - `Draft`: Черновик, не опубликовано
+        - `Published`: Опубликовано, доступно для продажи
+        - `Cancelled`: Отменено
+
+    TicketType:
+      type: object
+      required:
+        - name
+        - price
+        - totalSeats
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор типа билета
+          readOnly: true
+        name:
+          type: string
+          description: Название типа билета
+          example: "VIP"
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          description: Описание типа билета
+          example: "VIP места с комфортными креслами"
+          maxLength: 500
+        price:
+          type: number
+          format: double
+          description: Цена билета
+          example: 5000.00
+          minimum: 0
+        totalSeats:
+          type: integer
+          description: Общее количество мест этого типа
+          example: 100
+          minimum: 1
+        availableSeats:
+          type: integer
+          description: Количество доступных мест
+          example: 85
+          readOnly: true
+
+    CreateEventRequest:
+      type: object
+      required:
+        - name
+        - date
+        - venueId
+        - ticketTypes
+      properties:
+        name:
+          type: string
+          description: Название события
+          example: "Rock Legends 2025 Concert"
+          minLength: 3
+          maxLength: 200
+        description:
+          type: string
+          description: Описание события
+          example: "Грандиозный концерт легенд рока с участием лучших групп мира"
+          maxLength: 2000
+        date:
+          type: string
+          format: date-time
+          description: Дата и время проведения события (ISO 8601)
+          example: "2025-12-15T19:00:00Z"
+        venueId:
+          type: string
+          format: uuid
+          description: Идентификатор зала проведения
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        artists:
+          type: array
+          description: Список исполнителей
+          items:
+            type: string
+          example: ["Metallica", "Iron Maiden", "AC/DC"]
+          minItems: 1
+        genre:
+          type: string
+          description: Жанр музыки
+          example: "Rock"
+          maxLength: 50
+        imageUrl:
+          type: string
+          format: uri
+          description: URL постера события
+          example: "https://cdn.concerts.com/images/rock-legends-2025.jpg"
+        ticketTypes:
+          type: array
+          description: Типы билетов для события
+          items:
+            type: object
+            required:
+              - name
+              - price
+              - totalSeats
+            properties:
+              name:
+                type: string
+                example: "VIP"
+              description:
+                type: string
+                example: "VIP места"
+              price:
+                type: number
+                format: double
+                example: 5000.00
+                minimum: 0
+              totalSeats:
+                type: integer
+                example: 100
+                minimum: 1
+          minItems: 1
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        date:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        artists:
+          type: array
+          items:
+            type: string
+        genre:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+
+    EventResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор события
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "Rock Legends 2025 Concert"
+        description:
+          type: string
+          example: "Грандиозный концерт легенд рока"
+        date:
+          type: string
+          format: date-time
+          example: "2025-12-15T19:00:00Z"
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        venueId:
+          type: string
+          format: uuid
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        venueName:
+          type: string
+          description: Название зала (денормализованные данные для удобства)
+          example: "Olympic Stadium"
+        artists:
+          type: array
+          items:
+            type: string
+          example: ["Metallica", "Iron Maiden"]
+        genre:
+          type: string
+          example: "Rock"
+        imageUrl:
+          type: string
+          format: uri
+          example: "https://cdn.concerts.com/images/rock-legends-2025.jpg"
+        ticketTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketType'
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания события
+          example: "2025-11-01T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления
+          example: "2025-11-10T15:30:00Z"
+
+    EventListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationMetadata'
+
+    PaginationMetadata:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Текущая страница
+          example: 1
+        pageSize:
+          type: integer
+          description: Размер страницы
+          example: 20
+        totalItems:
+          type: integer
+          description: Общее количество элементов
+          example: 150
+        totalPages:
+          type: integer
+          description: Общее количество страниц
+          example: 8
+        hasNextPage:
+          type: boolean
+          description: Есть ли следующая страница
+          example: true
+        hasPreviousPage:
+          type: boolean
+          description: Есть ли предыдущая страница
+          example: false
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+          example: "NOT_FOUND"
+        message:
+          type: string
+          description: Человеко-читаемое описание ошибки
+          example: "Event with id 550e8400-e29b-41d4-a716-446655440000 not found"
+        timestamp:
+          type: string
+          format: date-time
+          description: Временная метка ошибки
+          example: "2025-11-11T10:30:00Z"
+        path:
+          type: string
+          description: Путь запроса, вызвавшего ошибку
+          example: "/api/events/550e8400-e29b-41d4-a716-446655440000"
+        requestId:
+          type: string
+          format: uuid
+          description: Уникальный ID запроса для трейсинга
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - validationErrors
+      properties:
+        error:
+          type: string
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          example: "Request validation failed"
+        validationErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Поле с ошибкой
+                example: "name"
+              message:
+                type: string
+                description: Описание ошибки валидации
+                example: "Name must be at least 3 characters long"
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Healthy, Degraded, Unhealthy]
+          description: Общий статус здоровья сервиса
+          example: "Healthy"
+        checks:
+          type: object
+          description: Детальные проверки зависимостей
+          properties:
+            database:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [Healthy, Unhealthy]
+                  example: "Healthy"
+                responseTime:
+                  type: integer
+                  description: Время отклика в миллисекундах
+                  example: 15
+            rabbitmq:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [Healthy, Unhealthy]
+                  example: "Healthy"
+                responseTime:
+                  type: integer
+                  example: 8
+        version:
+          type: string
+          description: Версия сервиса
+          example: "1.0.0"
+        uptime:
+          type: integer
+          description: Время работы сервиса в секундах
+          example: 3600
